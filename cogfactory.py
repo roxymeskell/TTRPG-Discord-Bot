@@ -1,169 +1,229 @@
-import asyncio
 import os
 import traceback
 import sys
+import re
 import time
 
 import discord
 from discord.ext import commands
 
-def make_cog(group_name):
-    class Cog(commands.Cog, name=group_name):
-        def __init__(self, bot):
-            self.bot = bot
-            self.group_name = group_name
-            self.member_role_name = f'{group_name} Member'
-            self.gm_role_name = f'{group_name} GM'
+class NullSubcommand(commands.CommandError):
+    pass
 
-            if len(bot.guilds) == 0:
-                raise commands.ExtensionFailed(message='Bot has no guilds.')
-            guild = bot.get_guild(bot.guilds[0].id)
-            self.guild = guild
-            self.member_role = discord.utils.get(guild.roles, name=self.member_role_name)
-            self.gm_role = discord.utils.get(guild.roles, name=self.gm_role_name)
+def check_for_subcommand(ctx):
+    if ctx.invoked_subcommand is None:
+        raise NullSubcommand(message=f'Invalid `{ctx.command.qualified_name}` command passed.')
+        return False
+    return True
 
-            self.member_role_id = self.member_role.id
-            self.gm_role_id = self.gm_role.id
-            self.group_id = discord.utils.get(guild.categories, name=group_name).id
-
-            self.group.update(name=self.group_name)
-            self.group.add_check(
-                commands.check_any(
-                    commands.has_role(self.member_role_id),
-                    commands.has_permissions(administrator=True)
-                )
-            )
-            self.add.add_check(
-                commands.check_any(
-                    commands.has_role(self.gm_role_id),
-                    commands.has_permissions(administrator=True)
-                )
-            )
-            self.kick.add_check(
-                commands.check_any(
-                    commands.has_role(self.gm_role_id),
-                    commands.has_permissions(administrator=True)
-                )
-            )
-            self.leave.add_check(
-                commands.has_role(self.member_role_id)
-            )
-            self.add_gm.add_check(
-                commands.check_any(
-                    commands.has_role(self.gm_role_id),
-                    commands.has_permissions(administrator=True)
-                )
-            )
-            self.resign_gm.add_check(
-                commands.has_role(self.gm_role_id)
-            )
-
-        @commands.Cog.listener()
-        async def on_guild_channel_update(self, before, after):
-            #if before.type == discord.ChannelType.category and before.name == self.group_name:
-            if before.id == self.group_id and before.name != after.name:
-                guild = before.guild
-                self.group_name = after.name
-                self.member_role_name = f'{after.name} Member'
-                self.gm_role_name = f'{after.name} GM'
-                await guild.get_role(self.member_role_id).edit(
-                    reason='Group name updated.',
-                    name=f'{after.name} Member'
-                )
-                await guild.get_role(self.gm_role_id).edit(
-                    reason='Group name updated.',
-                    name=f'{after.name} GM'
-                )
-                self.group.update(name=after.name)
-                print(f'Group name updated to {after.name}')
-
-        # @commands.group(self.group_name)
-        # @commands.check_any(
-        #     commands.has_role(self.member_role_id),
-        #     commands.has_permissions(administrator=True)
-        # )
-        @commands.group()
-        async def group(self, ctx):
-            if ctx.invoked_subcommand is None:
-                await ctx.send(f'Invalid `{ctx.command.qualified_name}` command passed...')
-
-        @group.command(
-            name='add'
+class GroupCog(commands.Cog):
+    def _get_name(self):
+        return self.__name
+    def _get_cmd_name(self):
+        return self.__cmd_name
+    def _set_name(self, val):
+        self.__name = val
+        self.__cmd_name = re.sub(
+            r'[^a-zA-Z0-9]+',
+            r'-',
+            self.__name.lower()
         )
-        # @commands.check_any(
-        #     commands.has_role(self.gm_role_id),
-        #     commands.has_permissions(administrator=True)
-        # )
-        async def add(self, ctx, u: discord.Member = None): # commands.Greedy[discord.Member]
-            if u is None:
-                raise commands.BadArgumentError(message='No user provided.')
-                return await ctx.send('No user provided.')
+        cmds = self.group.commands
+        self.group.update(name=self.__cmd_name)
+        for c in cmds:
+            self.group.add_command(c)
+    name = property(_get_name, _set_name)
+    group_name = property(_get_name, _set_name)
+    cmd = property(_get_cmd_name)
+
+    def _get_cat_id(self):
+        return self.__cat_id
+    def _set_cat_id(self, val):
+        self.__cat_id = val
+    group_id = property(_get_cat_id, _set_cat_id)
+
+    def _get_member_role_id(self):
+        return self.__member_role_id
+    def _set_member_role_id(self, val):
+        self.__member_role_id = val
+        self.group.add_check(
+            commands.check_any(
+                commands.has_role(self.member_role_id),
+                commands.has_permissions(administrator=True)
+            )
+        )
+        self.leave.add_check(
+            commands.has_role(self.member_role_id)
+        )
+    member_role_id = property(_get_member_role_id, _set_member_role_id)
+
+    def _get_gm_role_id(self):
+        return self.__member_role_id
+    def _set_gm_role_id(self, val):
+        self.__gm_role_id = val
+        self.add.add_check(
+            commands.check_any(
+                commands.has_role(self.gm_role_id),
+                commands.has_permissions(administrator=True)
+            )
+        )
+        self.kick.add_check(
+            commands.check_any(
+                commands.has_role(self.gm_role_id),
+                commands.has_permissions(administrator=True)
+            )
+        )
+        self.add_gm.add_check(
+            commands.check_any(
+                commands.has_role(self.gm_role_id),
+                commands.has_permissions(administrator=True)
+            )
+        )
+        self.resign_gm.add_check(
+            commands.has_role(self.gm_role_id)
+        )
+    gm_role_id = property(_get_gm_role_id, _set_gm_role_id)
+
+    def _get_member_role_name(self):
+        return f'{self.__name} Member'
+    member_role_name = property(_get_member_role_name)
+
+    def _get_gm_role_name(self):
+        return f'{self.__name} GM'
+    gm_role_name = property(_get_gm_role_name)
+
+    def _get_guild(self):
+        return self.__guild
+    def _set_guild(self, val):
+        self.__guild = val
+        member_role = discord.utils.get(self.guild.roles, name=self.member_role_name)
+        gm_role = discord.utils.get(self.guild.roles, name=self.gm_role_name)
+        cat = discord.utils.get(self.guild.categories, name=self.group_name)
+        if not member_role:
+            raise commands.ExtensionFailed(message='No member role for group.')
+        if not gm_role:
+            raise commands.ExtensionFailed(message='No GM role for group.')
+        if not cat:
+            raise commands.ExtensionFailed(message='No category channel for group.')
+        self.member_role_id = member_role.id
+        self.gm_role_id = gm_role.id
+        self.group_id = cat.id
+    guild = property(_get_guild, _set_guild)
+
+    def setup(self, bot, name=None):
+        if name is None:
+            raise commands.ExtensionFailed(message='Group cog not given name.')
+        self.name = name
+        self.bot = bot
+        if len(bot.guilds) == 0:
+            raise commands.ExtensionFailed(message='Bot has no guilds.')
+        self.guild = bot.get_guild(bot.guilds[0].id)
+
+    @commands.Cog.listener()
+    async def on_guild_channel_update(self, before, after):
+        if before.id == self.group_id and before.name != after.name:
+            guild = before.guild
             member_role = discord.utils.get(guild.roles, name=self.member_role_name)
-            await u.add_roles(member_role)
+            gm_role = discord.utils.get(guild.roles, name=self.gm_role_name)
+            self.group_name = after.name
+            await member_role.edit(
+                reason='Group name updated.',
+                name=f'{after.name} Member'
+            )
+            await gm_role.edit(
+                reason='Group name updated.',
+                name=f'{after.name} GM'
+            )
+            print(f'Group name updated to {self.cmd}')
 
-        @group.command(
-            name='kick'
-        )
-        # @commands.check_any(
-        #     commands.has_role(self.gm_role_id),
-        #     commands.has_permissions(administrator=True)
-        # )
-        async def kick(self, ctx, u: discord.Member = None):
-            if u is None:
-                raise commands.BadArgumentError(message='No user provided.')
-            if u == ctx.author:
-                raise commands.BadArgumentError(message='Cannot kick self.')
-            member_role = discord.utils.get(ctx.guild.roles, name=self.member_role_name)
-            gm_role = discord.utils.get(ctx.guild.roles, name=self.gm_role_name)
-            await u.remove_roles(member_role, gm_role, reason='Kicked from group.')
+    @commands.group(
+        help='Commands for for a specific group',
+        description='Provides commands for for a specific group'
+    )
+    #@commands.check(check_for_subcommand)
+    async def group(self, ctx):
+        if ctx.invoked_subcommand is None:
+            await ctx.send_help(ctx.command)
+            raise NullSubcommand(message=f'Invalid `{ctx.command.qualified_name}` command passed with no subcommand.')
 
-        @group.command(
-            name='leave'
-        )
-        # @commands.has_role(self.member_role_name)
-        async def leave(self, ctx):
-            u = ctx.author
-            member_role = discord.utils.get(ctx.guild.roles, name=self.member_role_name)
-            gm_role = discord.utils.get(ctx.guild.roles, name=self.gm_role_name)
-            await u.remove_roles(member_role, gm_role, reason='Requested to leave group.')
-            members = member_role.members
-            gms = gm_role.members
-            if len(gms) == 0 and len(members) > 0:
-              members[0].add_roles(gm_role)
+    @group.command(
+        name='add',
+        description='Add member to group'
+    )
+    async def add(self, ctx, user: discord.Member = None): # commands.Greedy[discord.Member]
+        if user is None:
+            await ctx.send_help(ctx.command)
+            raise commands.BadArgument(message='No user provided.')
+        member_role = discord.utils.get(ctx.guild.roles, name=self.member_role_name)
+        await user.add_roles(member_role)
 
-        @group.group(
-            name='gm'
-        )
-        async def gm_group(ctx):
-            if ctx.invoked_subcommand is None:
-                await ctx.send(f'Invalid `{ctx.command.qualified_name}` command passed...')
+    @group.command(
+        name='kick',
+        description='Kick member from group'
+    )
+    async def kick(self, ctx, user: discord.Member = None):
+        if user is None:
+            await ctx.send_help(ctx.command)
+            raise commands.BadArgument(message='No user provided.')
+        if user == ctx.author:
+            await ctx.send_help(ctx.command)
+            raise commands.BadArgument(message='Cannot kick self.')
+        member_role = discord.utils.get(ctx.guild.roles, name=self.member_role_name)
+        gm_role = discord.utils.get(ctx.guild.roles, name=self.gm_role_name)
+        await user.remove_roles(member_role, gm_role, reason='Kicked from group.')
 
-        @gm_group.command(
-            name='add'
-        )
-        # @commands.check_any(
-        #     commands.has_role(self.gm_role_id),
-        #     commands.has_permissions(administrator=True)
-        # )
-        async def add_gm(ctx, u: discord.Member = None):
-            if u is None:
-                raise commands.BadArgumentError(message='No user provided.')
-            member_role = discord.utils.get(ctx.guild.roles, name=self.member_role)
-            gm_role = discord.utils.get(ctx.guild.roles, name=self.gm_role)
-            await u.add_roles(member_role, gm_role, reason='Made GM of group.')
+    @group.command(
+        name='leave',
+        description='Leave group'
+    )
+    async def leave(self, ctx):
+        u = ctx.author
+        member_role = discord.utils.get(ctx.guild.roles, name=self.member_role_name)
+        gm_role = discord.utils.get(ctx.guild.roles, name=self.gm_role_name)
+        await u.remove_roles(member_role, gm_role, reason='Requested to leave group.')
+        members = member_role.members
+        gms = gm_role.members
+        if len(gms) == 0 and len(members) > 0:
+          members[0].add_roles(gm_role)
 
-        @gm_group.command(
-            name='resign'
-        )
-        # @commands.has_role(self.gm_role_id)
-        async def resign_gm(ctx):
-            u = ctx.author
-            member_role = discord.utils.get(ctx.guild.roles, name=self.member_role)
-            gm_role = discord.utils.get(ctx.guild.roles, name=self.gm_role)
-            await u.remove_roles(gm_role, reason='Resigned as GM of group.')
-            members = member_role.members
-            gms = gm_role.members
-            if len(gms) == 0 and len(members) > 0:
-              members[0].add_roles(gm_role)
+    @group.group(
+        name='gm',
+        description='GM specific commands'
+    )
+    #@commands.check(check_for_subcommand)
+    async def gm_group(ctx):
+        if ctx.invoked_subcommand is None:
+            await ctx.send_help(ctx.command)
+            raise NullSubcommand(message=f'Invalid `{ctx.command.qualified_name}` command passed with no subcommand.')
 
+    @gm_group.command(
+        name='add',
+        description='Add a user as  a GM'
+    )
+    async def add_gm(ctx, user: discord.Member = None):
+        if user is None:
+            raise commands.BadArgument(message='No user provided.')
+        member_role = discord.utils.get(ctx.guild.roles, name=self.member_role)
+        gm_role = discord.utils.get(ctx.guild.roles, name=self.gm_role)
+        await user.add_roles(member_role, gm_role, reason='Made GM of group.')
+
+    @gm_group.command(
+        name='resign',
+        description='Resign as GM'
+    )
+    async def resign_gm(ctx):
+        u = ctx.author
+        member_role = ctx.guild.get_role(self.member_role_id)
+        gm_role = ctx.guild.get_role(self.gm_role_id)
+        await u.remove_roles(gm_role, reason='Resigned as GM of group.')
+        members = member_role.members
+        gms = gm_role.members
+        if len(gms) == 0 and len(members) > 0:
+          members[0].add_roles(gm_role)
+
+
+def make_cog(group_name):
+    class Cog(GroupCog, name=group_name):
+        def __init__(self, bot):
+            self.setup(bot, group_name)
     return Cog
