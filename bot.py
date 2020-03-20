@@ -8,86 +8,97 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
+from cogfactory import make_cog
+from colors import random_color
+
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 
 bot = commands.Bot(command_prefix='!')
+bot.remove_command('help')
 
-async def create_group_cmds(ctx, group_name):
-    guild = ctx.guild
-    existing_group = discord.utils.get(guild.categories, name=group_name)
-    if not existing_group:
-      return False
+@bot.event
+async def on_ready():
+    print(f'Logged in as {bot.user.name} - {bot.user.id}')
+    if len(bot.guilds) == 0:
+        raise commands.ExtensionFailed(message='Bot has no guilds.')
+    guild = bot.get_guild(bot.guilds[0].id)
+    for c in guild.categories:
+        bot.add_cog(make_cog(c.name)(bot))
+    for comm in bot.commands:
+        print(f'**{comm.name}** - *{comm.description}*\n')
+    return
 
-    member_role = discord.utils.get(guild.roles, name=f'{group_name} Member')
-    if member_role is None:
-        member_role = await guild.create_role(
-            name=f'{group_name} Member',
-            reason='Role for group did not exist.'
-        )
-    gm_role = discord.utils.get(guild.roles, name=f'{group_name} GM')
-    if gm_role is None:
-        gm_role = await guild.create_role(
-            name=f'{group_name} GM',
-            color=discord.Color.dark_purple(),
-            reason='Role for group did not exist.'
-        )
+@bot.command(
+    name='help',
+    description='The help command!',
+    aliases=['commands', 'command']
+)
+async def help_command(ctx):
+    print('Helping!')
 
-    @commands.group(group_name)
-    async def group(ctx):
-        if ctx.invoked_subcommand is None:
-            await ctx.send('Invalid `group` command passed...')
+    # The third parameter comes into play when
+    # only one word argument has to be passed by the user
 
-    @group.command('add')
-    @commands.check_any(commands.has_role(gm_role), commands.has_permissions(administrator=True))
-    async def add(ctx, u: discord.Member = None): # commands.Greedy[discord.Member]
-        if not u:
-            return await ctx.send('No user provided.')
-        await u.add_roles(member_role)
+    # Prepare the embed
+    help_embed = discord.Embed(
+        title='Help',
+        color=random_color()
+    )
+    help_embed.set_thumbnail(url=bot.user.avatar_url)
+    help_embed.set_footer(
+        text=f'Requested by {ctx.message.author.name}',
+        icon_url=ctx.author.avatar_url
+    )
 
-    @group.command('kick')
-    @commands.check_any(commands.has_role(gm_role), commands.has_permissions(administrator=True))
-    async def kick(ctx, u: discord.Member = None):
-        if not u:
-            return await ctx.send('No user provided.')
-        if u == ctx.author:
-            return await ctx.send('Cannot kick self.')
-        await u.remove_roles(member_role, gm_role, reason='Kicked from group.')
+    commands_list = ''
+    for comm in bot.commands:
+        if comm.cog is None:
+            commands_list += f'**{comm.name}** - *{comm.description}*\n'
+            if isinstance(comm, commands.Group):
+                cog_subcommands = comm.commands
+                for comm in cog_subcommands:
+                    commands_list += f'\t**{comm.name}** - *{comm.description}*\n'
+    help_embed.add_field(
+       name='Base Commands',
+       value=commands_list,
+       inline=False
+    ).add_field(
+        name='\u200b', value='\u200b', inline=False
+    )
 
-    @group.command('leave')
-    @commands.has_role(member_role)
-    async def add(ctx):
-        u = ctx.author
-        await u.remove_roles(member_role, gm_role, reason='Requested to leave group.')
-        members = filter(lambda m: member_role in m.roles, guild.members)
-        gms = filter(lambda m: gm_role in m.roles, members)
-        if len(gms) == 0 and len(members) > 0:
-          members[0].add_roles(gm_role)
+    cogs = [c for c in bot.cogs.keys()]
+    cog = cogs[0]
+    cog_commands = bot.get_cog(cog).get_commands()
+    commands_list = ''
+    comm = bot.get_command(cog_commands[0].name)
+    commands_list += f'**_[group]_** - *{comm.description}*\n'
+    print(comm, comm.commands, isinstance(comm, commands.Group), comm.get_command('add'))
+    cog_subcommands = comm.commands
+    for comm in cog_subcommands:
+        commands_list += f'\t**{comm.name}** - *{comm.description}*\n'
+        if isinstance(comm, commands.Group):
+            cog_subsubcommands = comm.commands
+            for comm in cog_subsubcommands:
+                commands_list += f'\t\t**{comm.name}** - *{comm.description}*\n'\
 
-    @group.group('gm')
-    async def gm_group(ctx):
-        if ctx.invoked_subcommand is None:
-            await ctx.send('Invalid `group gm` command passed...')
+    groups_list = ''
+    for cog in cogs:
+        groups_list += f'**_{cog}_** - *{bot.get_cog(cog).group_name}*\n'
 
-    @gm_group.command('add')
-    @commands.check_any(commands.has_role(gm_role), commands.has_permissions(administrator=True))
-    async def add_gm(ctx, u: discord.Member = None):
-        if not u:
-            return await ctx.send('No user provided.')
-        await u.add_roles(member_role, gm_role, reason='Made GM of group.')
+    help_embed.add_field(
+       name='Group Commands',
+       value=commands_list,
+       inline=False
+    ).add_field(
+        name='Groups',
+        value=groups_list,
+        inline=False
+    ).add_field(
+        name='\u200b', value='\u200b', inline=False
+    )
 
-    @gm_group.command('resign')
-    @commands.has_role(gm_role)
-    async def add(ctx):
-        u = ctx.author
-        await u.remove_roles(gm_role, reason='Resigned as GM of group.')
-        members = filter(lambda m: m != u and member_role in m.roles, guild.members)
-        gms = filter(lambda m: gm_role in m.roles, members)
-        if len(gms) == 0 and len(members) > 0:
-          members[0].add_roles(gm_role)
-
-    bot.add_command(group)
-    return True
+    return await ctx.send(embed=help_embed)
 
 @bot.event
 async def on_command_error(ctx, error):
@@ -115,15 +126,61 @@ async def on_command_error(ctx, error):
             return await ctx.send('I could not find that member. Please try again.')
     elif isinstance(error, commands.CommandNotFound):
         await ctx.send(f'{ctx.command} not found. Looking to see if it should exist...')
-        if await create_group_cmds(ctx, ctx.command):
-            await bot.invoke(ctx)
+        existing_group = discord.utils.get(ctx.guild.categories, name=ctx.command)
+        if existing_group: # await create_group_cmds(ctx, ctx.command):
+            bot.add_cog(make_cog(ctx.command)(bot))
+            return await bot.invoke(ctx)
+        return await ctx.send(f'{ctx.command} does not exist.')
     print('Ignoring exception in command {}:'.format(ctx.command), file=sys.stderr)
     traceback.print_exception(type(error), error, error.__traceback__, file=sys.stderr)
     await ctx.send(f'Something sent wrong when trying to execute {ctx.command}.')
 
+@bot.command(name='clear-msgs')
+async def clear_msgs(ctx):
+    channel = ctx.channel
+    await channel.purge()
+
+@bot.command(name='clear-groups')
+async def clear_groups(ctx):
+    guild = ctx.guild
+    names = ''
+    for c in guild.categories:
+        name = c.name
+        for _c in c.channels:
+            await _c.delete()
+        await c.delete()
+        member_role = discord.utils.get(guild.roles, name=f'{name} Member')
+        if member_role:
+            await member_role.delete()
+        gm_role = discord.utils.get(guild.roles, name=f'{name} GM')
+        if gm_role:
+            await gm_role.delete()
+        if not names:
+            name = name
+        else:
+            names += f', {name}'
+    for r in list(filter(lambda r: r.name.endswith('Member'), guild.roles)):
+        name = r.name.replace(' Member', '')
+        await r.delete()
+        gm_role = discord.utils.get(guild.roles, name=f'{name} GM')
+        if gm_role:
+            await gm_role.delete()
+        if not names:
+            name = name
+        else:
+            names += f', {name}'
+    for r in list(filter(lambda r: r.name.endswith('GM'), guild.roles)):
+        name = r.name.replace(' GM', '')
+        await r.delete()
+        if not names:
+            name = name
+        else:
+            names += f', {name}'
+    await ctx.send(f'Deleted channels: {names}')
+
 @bot.command(name='create-group')
 async def create_group(ctx, group_name=''):
-    ctx.send(f'Executing {ctx.command} with args: {group_name}')
+    await ctx.send(f'Executing {ctx.command} with args: {group_name}')
     if not group_name:
         group_name = hex(int(time.time())-(31536000*50)).replace('0x','').upper()
     guild = ctx.guild
@@ -164,6 +221,7 @@ async def create_group(ctx, group_name=''):
                     send_tts_messages=True,
                     connect=True,
                     speak=True,
+                    manage_channels=True,
                     manage_permissions=True,
                     move_members=True,
                     mute_members=True,
@@ -175,6 +233,7 @@ async def create_group(ctx, group_name=''):
         )
         await category.create_text_channel('General')
         await category.create_voice_channel('General')
-        await create_group_cmds(ctx, group_name)
+        bot.add_cog(make_cog(group_name)(bot))
+        #await create_group_cmds(ctx, group_name)
 
 bot.run(TOKEN)
