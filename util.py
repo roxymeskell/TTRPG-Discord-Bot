@@ -8,7 +8,10 @@ from colors import random_color
 class Util(commands.Cog, name='Util'):
     def __init__(self, bot):
         self.bot = bot
-    
+
+    async def cog_check(self, ctx: commands.Context):
+        return ctx.author.permissions_in(ctx.channel).administrator
+
     @commands.command(
         name='clear-msgs',
         help='Clears all messages in channel.',

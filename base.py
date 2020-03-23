@@ -106,8 +106,9 @@ class Base(commands.Cog, name='Base'):
         description='Creates a new TTRPG group.',
         aliases=['make-group', 'new-group', 'make', 'new', 'create']
     )
-    async def create_group(self, ctx, group_name=''):
-        await ctx.send(f'Executing {ctx.command} with args: {group_name}')
+    #async def create_group(self, ctx, group_name=''):
+    async def create_group(self, ctx, users: commands.Greedy[discord.Member], *, group_name=''):
+        #await ctx.send(f'Executing {ctx.command} with args: {group_name}')
         if not group_name:
             group_name = hex(int(time.time())-(31536000*50)).replace('0x','').upper()
         guild = ctx.guild
@@ -159,8 +160,9 @@ class Base(commands.Cog, name='Base'):
             )
             await category.create_text_channel('general', reason=f'Created group {group_name}.')
             await category.create_voice_channel('general', reason=f'Created group {group_name}.')
-            print(member_role, gm_role)
             await ctx.author.add_roles(member_role, gm_role, reason=f'Created group {group_name}.')
+            for u in users:
+                await u.add_roles(member_role, reason=f'Created group {group_name}.')
             self.bot.add_cog(make_cog(group_name)(self.bot))
 
 

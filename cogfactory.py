@@ -26,7 +26,7 @@ class GroupCog(commands.Cog):
         self.__cmd_name = re.sub(
             r'[^a-zA-Z0-9]+',
             r'-',
-            self.__name.lower()
+            re.sub(r'[\'"`]', '', self.__name.lower())
         )
         cmds = self.group.commands
         self.group.update(name=self.__cmd_name)
@@ -120,6 +120,9 @@ class GroupCog(commands.Cog):
             raise commands.ExtensionFailed(message='Bot has no guilds.')
         self.guild = bot.get_guild(bot.guilds[0].id)
 
+    async def cog_check(self, ctx: commands.Context):
+        return ctx.author.guild_permissions.administrator or discord.utils.get(ctx.author.roles, name=self.member_role_name) is not None
+
     @commands.Cog.listener()
     async def on_guild_channel_update(self, before, after):
         if before.id == self.group_id and before.name != after.name:
@@ -136,6 +139,8 @@ class GroupCog(commands.Cog):
                 name=f'{after.name} GM'
             )
             print(f'Group name updated to {self.cmd}')
+        elif before.category is not None and before.category.id == self.group_id and (after.category is None or after.category.id != self.group_id):
+            await after.delete()
 
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel):
@@ -153,7 +158,6 @@ class GroupCog(commands.Cog):
         help='Commands for for a specific group',
         description='Provides commands for for a specific group'
     )
-    #@commands.check(check_for_subcommand)
     async def group(self, ctx):
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)

@@ -247,14 +247,14 @@ class MyHelpCommand(Commands.HelpCommand):
             commands = sorted(commands, key=lambda c: c.name) if self.sort_commands else list(commands)
             self.add_indented_commands(commands, heading=category, max_size=max_size, tabs=0)
 
-        # self.paginator.add_line('Groups:')
-        # for c in group_cmds:
-        #     self.paginator.add_line(f'**_{c.cog.name}_**: `{c.cog.cmd}`')
-
-        cogs = list(filter(lambda c: isinstance(c, GroupCog), bot.cogs.values()))
         self.paginator.add_line('Groups:')
-        for cog in cogs:
-            self.paginator.add_line(f'**_{cog.name}_**: `{cog.cmd}`')
+        for c in group_cmds:
+            self.paginator.add_line(f'**_{c.cog.name}_**: `{c.cog.cmd}`')
+
+        # cogs = list(filter(lambda c: isinstance(c, GroupCog), bot.cogs.values()))
+        # self.paginator.add_line('Groups:')
+        # for cog in cogs:
+        #     self.paginator.add_line(f'**_{cog.name}_**: `{cog.cmd}`')
 
         note = self.get_ending_note()
         if note:
