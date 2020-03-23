@@ -113,6 +113,7 @@ class GroupCog(commands.Cog):
     def setup(self, bot, name=None):
         if name is None:
             raise commands.ExtensionFailed(message='Group cog not given name.')
+        self.cog_name = name
         self.name = name
         self.bot = bot
         if len(bot.guilds) == 0:
@@ -135,6 +136,18 @@ class GroupCog(commands.Cog):
                 name=f'{after.name} GM'
             )
             print(f'Group name updated to {self.cmd}')
+
+    @commands.Cog.listener()
+    async def on_guild_channel_delete(self, channel):
+        if channel.id == self.group_id:
+            for c in channel.channels:
+                await c.delete()
+            guild = channel.guild
+            member_role = discord.utils.get(guild.roles, name=self.member_role_name)
+            gm_role = discord.utils.get(guild.roles, name=self.gm_role_name)
+            await member_role.delete()
+            await gm_role.delete()
+            self.bot.remove_cog(self.cog_name)
 
     @commands.group(
         help='Commands for for a specific group',

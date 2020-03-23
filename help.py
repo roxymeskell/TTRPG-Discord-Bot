@@ -49,6 +49,7 @@ class MyHelpCommand(Commands.HelpCommand):
         self.commands_heading = options.pop('commands_heading', "Commands:")
         self.no_category = options.pop('no_category', 'No Category')
         self.paginator = options.pop('paginator', None)
+        options['verify_checks'] = True
 
         if self.paginator is None:
             self.paginator = Commands.Paginator()
@@ -245,6 +246,10 @@ class MyHelpCommand(Commands.HelpCommand):
         for category, commands in to_iterate:
             commands = sorted(commands, key=lambda c: c.name) if self.sort_commands else list(commands)
             self.add_indented_commands(commands, heading=category, max_size=max_size, tabs=0)
+
+        # self.paginator.add_line('Groups:')
+        # for c in group_cmds:
+        #     self.paginator.add_line(f'**_{c.cog.name}_**: `{c.cog.cmd}`')
 
         cogs = list(filter(lambda c: isinstance(c, GroupCog), bot.cogs.values()))
         self.paginator.add_line('Groups:')
