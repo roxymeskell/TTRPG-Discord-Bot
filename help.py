@@ -7,6 +7,170 @@ import re
 from colors import random_color
 from cogfactory import GroupCog
 
+__all__ = ['MyHelpCommand', 'EmbedPaginator']
+
+class EmbedPaginator: #(cmds.Paginator):
+    # EMBEDED LIMITS:
+    # title	256 characters
+    # description	2048 characters
+    # fields	Up to 25 field objects
+    # field.name	256 characters
+    # field.value	1024 characters
+    # footer.text	2048 characters
+    # def __init__(self, **options):
+    #     self.super().__init__(**options)
+    def __init__(self, max_size=2000):
+        self.max_size = max_size
+        self.clear()
+
+    def clear(self):
+        self.title = None
+        self.description = None
+        self.footer = None
+        self.footer_icon_url = None
+        self.thumbnail_url = None
+        self.prefix = None
+        self.suffix = None
+        self._current_name = ''
+        self._current_page = {
+            'fields': [],
+        }
+        self._base_count = 0
+        self._count = 0
+        self._pages = []
+
+    def set_title(self, title):
+        if len(title) > 248:
+            raise RuntimeError('Description exceeds maximum size 248')
+        self.title = title
+        self._base_count += len(title) + 1 + 8 # title + newline + space for ' Cont. #'
+
+    def set_description(self, description):
+        if len(description) > 2048:
+            raise RuntimeError('Description exceeds maximum size 2048')
+        self.description = description
+        self._base_count += len(description) + 1 # description + newline
+
+    def set_thumbnail(self, url):
+        self.thumbnail_url = url
+
+    def set_footer(self, footer, icon_url=None):
+        if len(footer) > 2048:
+            raise RuntimeError('Footer text exceeds maximum size 2048')
+        self.footer = footer
+        self.footer_icon_url = icon_url
+        self._base_count += len(footer) + 1 # footer + newline
+
+    def set_prefix(self, prefix=None):
+        self.prefix = prefix
+        if len(self._current_page['fields']) > 0:
+            if len(self._current_page['fields'][-1]['value']) == 0:
+                self._current_page['fields'][-1]['value'] += prefix
+                self._count += len(prefix) + 1
+            else:
+                self._current_page['fields'][-1]['value'] += '\n%s' % (prefix)
+                self._count += len(prefix) + 2 # prefix + 2*newline
+
+    def set_suffix(self, suffix=None):
+        if self.suffix is not None and len(self._current_page['fields']) > 0:
+            self._current_page['fields'][-1]['value'] += '\n%s' % (self.suffix)
+            self._count += len(self.suffix) + 1
+        self.suffix = suffix
+
+    def clear_prefix(self):
+        self.prefix = None
+
+    def clear_suffix(self):
+        if self.suffix is not None and len(self._current_page['fields']) > 0:
+            self._current_page['fields'][-1]['value'] += '\n%s' % (self.suffix)
+            self._count += len(self.suffix) + 1
+        self.suffix = None
+
+    @property
+    def _suffix_len(self):
+        return len(self.suffix) if self.suffix else 0
+
+    @property
+    def _prefix_len(self):
+        return len(self.prefix) if self.prefix else 0
+
+    @property
+    def _suffix_len(self):
+        return len(self.suffix) if self.suffix else 0
+
+    def close_page(self):
+        if self.suffix is not None and len(self._current_page['fields']) > 0:
+            self._current_page['fields'][-1]['value'] += '\n%s' % (self.suffix)
+        if self.title is not None:
+            self._current_page['title'] = self.title
+            if len(self._pages) > 0:
+                self._current_page['title'] += ' Cont. %d' % (len(self._pages) + 1)
+        if self.description is not None:
+            self._current_page['description'] = self.description
+        if self.footer is not None:
+            self._current_page['footer'] = { 'text': self.footer}
+            if self.footer_icon_url  is not None:
+                self._current_page['footer']['icon_url'] = self.footer_icon_url
+        if self.thumbnail_url  is not None:
+            self._current_page['thumbnail'] = { 'url': self.thumbnail_url }
+        self._current_page['color'] = random_color()
+        self._current_page['type'] = 'rich'
+
+        self._pages.append(self._current_page)
+        self._current_page = { 'fields': [] }
+        self._count = 0
+
+    def add_name(self, name='\u200b'):
+        if len(name) > 250:
+            raise RuntimeError('Field name exceeds maximum size 250')
+
+        if self.suffix is not None and len(self._current_page['fields']) > 0:
+            self._current_page['fields'][-1]['value'] += '\n%s' % (self.suffix)
+            self._count += len(self.suffix) + 1
+
+        if self._count + self._base_count + len(name) + 1 > self.max_size - self._suffix_len or len(self._current_page['fields']) == 25:
+            self.close_page()
+
+        self._current_page['fields'].append({ 'inline': False, 'name': name, 'value': '' })
+        self._count += len(name) + 1
+
+    def add_line(self, line='', *, empty=False):
+        max_page_size = self.max_size - self._prefix_len - self._suffix_len - 2
+        if len(line) > max_page_size:
+            raise RuntimeError('Line exceeds maximum page size %s' % (max_page_size))
+
+        if self._count + self._base_count + len(line) + 1 > self.max_size - self._suffix_len:
+            self.close_page()
+
+        if len(self._current_page['fields']) == 0:
+            self._current_page['fields'].append({ 'inline': False, 'name': '\u200b', 'value': '' })
+            self._count += 1
+        elif len(self._current_page['fields'][-1]['value']) + len(line) + self._suffix_len + 1 >= 1024:
+            self.add_name()
+
+        if len(self._current_page['fields'][-1]['value']) == 0 and self.prefix:
+            self._current_page['fields'][-1]['value'] += self.prefix
+            self._count += len(self.prefix) + 1
+
+        if len(self._current_page['fields'][-1]['value']) == 0:
+            self._current_page['fields'][-1]['value'] += line
+            self._count += len(line)
+        else:
+            self._current_page['fields'][-1]['value'] += '\n%s' % (line)
+            self._count += len(line) + 1
+
+        if empty:
+            self._current_page['fields'][-1]['value'] += '\n'
+            self._count += 1
+
+    @property
+    def pages(self):
+        """Returns the rendered list of pages."""
+        # we have more than just the prefix in our current page
+        if self._count > (0 if self.prefix is None else self._prefix_len + 1):
+            self.close_page()
+        return list(map(lambda p : discord.Embed.from_dict(p), self._pages))
+
 class MyHelpCommand(cmds.HelpCommand):
     """The implementation of the default help command.
     This inherits from :class:`HelpCommand`.
@@ -52,7 +216,7 @@ class MyHelpCommand(cmds.HelpCommand):
         options['verify_checks'] = True
 
         if self.paginator is None:
-            self.paginator = cmds.Paginator()
+            self.paginator = EmbedPaginator() #cmds.Paginator()
 
         super().__init__(**options)
 
@@ -68,30 +232,7 @@ class MyHelpCommand(cmds.HelpCommand):
         return "Type `{0}{1} command` for more info on a command.\n" \
                "You can also type `{0}{1} category` for more info on a category.".format(self.clean_prefix, command_name)
 
-    async def add_indented_commands(self, commands, *, heading, max_size=None, tabs=1):
-        """Indents a list of commands after the specified heading.
-        The formatting is added to the :attr:`paginator`.
-        The default implementation is the command name indented by
-        :attr:`indent` spaces, padded to ``max_size`` followed by
-        the command's :attr:`Command.short_doc` and then shortened
-        to fit into the :attr:`width`.
-        Parameters
-        -----------
-        commands: Sequence[:class:`Command`]
-            A list of commands to indent for output.
-        heading: :class:`str`
-            The heading to add to the output. This is only added
-            if the list of commands is greater than 0.
-        max_size: Optional[:class:`int`]
-            The max size to use for the gap between indents.
-            If unspecified, calls :meth:`get_max_size` on the
-            commands parameter.
-        """
-
-        if not commands:
-            return
-
-        self.paginator.add_line(heading)
+    async def add_indented_commands(self, commands, *, max_size=None, tabs=1):
         max_size = max_size or self.get_max_size(commands)
 
         get_width = discord.utils._string_width
@@ -104,61 +245,18 @@ class MyHelpCommand(cmds.HelpCommand):
             entry = '{0}{1:<{width}} {2}'.format(self.indent * tabs * ' ', name, command.short_doc, width=width)
             if isinstance(command, cmds.Group):
                 subcommands = await self.filter_commands(command.commands, sort=self.sort_commands)
+                self.paginator.add_line(self.shorten_text(entry))
                 await self.add_indented_commands(
                     list(subcommands),
-                    heading=self.shorten_text(entry),
                     tabs=tabs+1
                 )
             else:
                 self.paginator.add_line(self.shorten_text(entry))
 
     async def send_pages(self):
-        """A helper utility to send the page output from :attr:`paginator` to the destination."""
         destination = self.get_destination()
-        ctx = self.context
-        bot = ctx.bot
-        i = 0
-        title = 'Help'
-        description = ''
-        curr_header = ''
         for page in self.paginator.pages:
-            try:
-                page_spl = re.split(r'([\w ]+:\n)', page.replace('```',''))
-                if page_spl[0] == '':
-                    page_spl.pop(0)
-                if ':\n' not in page_spl[0] and i == 0:
-                    description = page_spl.pop(0)
-                embed = discord.Embed(
-                    title='Help' if i==0 else 'Help cont.',
-                    description=description,
-                    color=random_color()
-                )
-                embed.set_thumbnail(url=bot.user.avatar_url)
-                embed.set_footer(
-                    text=f'Requested by {ctx.message.author.name}',
-                    icon_url=ctx.author.avatar_url
-                )
-                if ':\n' not in page_spl[0] and i == 0:
-                    content = page_spl.pop(0)
-                    embed.add_field(
-                       name=f'{curr_header} Cont.',
-                       value=content if 'Commands' not in curr_header else f'```\n{content}\n```',
-                       inline=False
-                    )
-                page_spl = zip(page_spl[0::2], page_spl[1::2])
-                for head, content in page_spl:
-                    head = head.replace(':\n', '')
-                    curr_header = head
-                    embed.add_field(
-                       name=head if head != 'Note' else '\u200b',
-                       value=content if 'Commands' not in head else f'```\n{content}\n```',
-                       inline=False
-                    )
-                await destination.send(embed=embed)
-            except:
-                await destination.send(page)
-            finally:
-                i += 1
+            await destination.send(embed=page)
 
     def add_command_formatting(self, command):
         """A utility function to format the non-indented block of commands and groups.
@@ -168,12 +266,18 @@ class MyHelpCommand(cmds.HelpCommand):
             The command to format.
         """
 
-        if command.description:
-            self.paginator.add_line(command.description, empty=True)
+        self.paginator.set_title(f'Command Help "{command.qualified_name}"')
 
-        self.paginator.add_line('Command:')
+        if command.description:
+            self.paginator.set_description(command.description)
+
+        self.paginator.add_name('Command')
         signature = self.get_command_signature(command)
-        self.paginator.add_line(f'`{signature}`', empty=True)
+        self.paginator.set_prefix('```')
+        self.paginator.set_suffix('```')
+        self.paginator.add_line(f'{signature}', empty=True)
+        self.paginator.clear_prefix()
+        self.paginator.clear_suffix()
 
         if command.help:
             try:
@@ -182,28 +286,6 @@ class MyHelpCommand(cmds.HelpCommand):
                 for line in command.help.splitlines():
                     self.paginator.add_line(line)
                 self.paginator.add_line()
-
-    def add_indented_command(self, command):
-        """A utility function to format the non-indented block of commands and groups.
-        Parameters
-        ------------
-        command: :class:`Command`
-            The command to format.
-        """
-
-        cmd = command
-        tab = 0
-        while cmd.parent is not None:
-            tab += 1
-            cmd = cmd.parent
-
-        if isinstance(command.cog, GroupCog) and tab == 0:
-            name = '[group]'
-        else:
-            name = command.name
-        width = max_size - (get_width(name) - len(name))
-        entry = '{0}{1:<{width}} {2}'.format(self.indent * tab * ' ', name, command.short_doc, width=width)
-        self.paginator.add_line(self.shorten_text(entry))
 
     def get_destination(self):
         ctx = self.context
@@ -216,6 +298,12 @@ class MyHelpCommand(cmds.HelpCommand):
 
     async def prepare_help_command(self, ctx, command):
         self.paginator.clear()
+        self.paginator.set_thumbnail(url=str(ctx.bot.user.avatar_url))
+        self.paginator.set_title('Help')
+        self.paginator.set_footer(
+            f'Requested by {ctx.message.author.name}',
+            icon_url=str(ctx.author.avatar_url)
+        )
         await super().prepare_help_command(ctx, command)
 
     async def send_bot_help(self, mapping):
@@ -224,16 +312,16 @@ class MyHelpCommand(cmds.HelpCommand):
 
         if bot.description:
             # <description> portion
-            self.paginator.add_line(bot.description, empty=True)
+            self.paginator.add_description(bot.description)
 
-        no_category = '\u200b{0.no_category} Commands:'.format(self)
+        no_category = '\u200b{0.no_category} Commands'.format(self)
         def get_category(command, *, no_category=no_category):
             cog = command.cog
             if isinstance(cog, GroupCog) or command.name == 'create-group':
-                return 'Group Commands:'
+                return 'Group Commands'
             else:
-                return 'General Commands:'
-            return cog.qualified_name + 'Commands:' if cog is not None else no_category
+                return 'General Commands'
+            return cog.qualified_name + 'Commands' if cog is not None else no_category
 
         filtered = await self.filter_commands(bot.commands, sort=True, key=get_category)
         group_cmds = [c for c in filtered if isinstance(c.cog, GroupCog)]
@@ -245,13 +333,18 @@ class MyHelpCommand(cmds.HelpCommand):
         to_iterate = itertools.groupby(filtered, key=get_category)
 
         # Now we can add the commands to the page.
+        self.paginator.set_prefix('```')
+        self.paginator.set_suffix('```')
         for category, commands in to_iterate:
             commands = sorted(commands, key=lambda c: c.name) if self.sort_commands else list(commands)
-            await self.add_indented_commands(commands, heading=category, max_size=max_size, tabs=0)
+            self.paginator.add_name(category)
+            await self.add_indented_commands(commands, max_size=max_size, tabs=0)
+        self.paginator.clear_prefix()
+        self.paginator.clear_suffix()
 
-        self.paginator.add_line('Groups:')
+        self.paginator.add_name('Groups')
         for c in group_cmds:
-            self.paginator.add_line(f'**_{c.cog.name}_**: `{c.cog.cmd}`')
+            self.paginator.add_line(f'**{c.cog.name}**: `{c.cog.cmd}`')
 
         # cogs = list(filter(lambda c: isinstance(c, GroupCog), bot.cogs.values()))
         # self.paginator.add_line('Groups:')
@@ -260,7 +353,7 @@ class MyHelpCommand(cmds.HelpCommand):
 
         note = self.get_ending_note()
         if note:
-            self.paginator.add_line('Note:')
+            self.paginator.add_name()
             self.paginator.add_line(note)
 
         await self.send_pages()
@@ -273,27 +366,39 @@ class MyHelpCommand(cmds.HelpCommand):
     async def send_group_help(self, group):
         self.add_command_formatting(group)
 
+        #self.paginator.add_name(self.commands_heading)
+        self.paginator.add_name('Subcommands')
         filtered = await self.filter_commands(group.commands, sort=self.sort_commands)
-        await self.add_indented_commands(filtered, heading=self.commands_heading, tabs=0)
+        self.paginator.set_prefix('```')
+        self.paginator.set_suffix('```')
+        await self.add_indented_commands(filtered, tabs=0)
+        self.paginator.clear_prefix()
+        self.paginator.clear_suffix()
 
         if filtered:
             note = self.get_ending_note()
             if note:
-                self.paginator.add_line('Note:')
+                self.paginator.add_name()
                 self.paginator.add_line(note)
 
         await self.send_pages()
 
     async def send_cog_help(self, cog):
+        self.paginator.set_title(f'Cog Help "{cog.qualified_name}"')
         if cog.description:
-            self.paginator.add_line(cog.description, empty=True)
+            self.paginator.set_description(cog.description)
 
+        self.paginator.add_name(self.commands_heading)
         filtered = await self.filter_commands(cog.get_commands(), sort=self.sort_commands)
-        await self.add_indented_commands(filtered, heading=self.commands_heading)
+        self.paginator.set_prefix('```')
+        self.paginator.set_suffix('```')
+        await self.add_indented_commands(filtered, tabs=0)
+        self.paginator.clear_prefix()
+        self.paginator.clear_suffix()
 
         note = self.get_ending_note()
         if note:
-            self.paginator.add_line('Note:')
+            self.paginator.add_name()
             self.paginator.add_line(note)
 
         await self.send_pages()
