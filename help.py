@@ -1,5 +1,5 @@
 # help.py
-from discord.ext import commands as Commands
+from discord.ext import commands as cmds
 import discord
 import itertools
 import re
@@ -7,7 +7,7 @@ import re
 from colors import random_color
 from cogfactory import GroupCog
 
-class MyHelpCommand(Commands.HelpCommand):
+class MyHelpCommand(cmds.HelpCommand):
     """The implementation of the default help command.
     This inherits from :class:`HelpCommand`.
     It extends it with the following attributes.
@@ -52,7 +52,7 @@ class MyHelpCommand(Commands.HelpCommand):
         options['verify_checks'] = True
 
         if self.paginator is None:
-            self.paginator = Commands.Paginator()
+            self.paginator = cmds.Paginator()
 
         super().__init__(**options)
 
@@ -68,7 +68,7 @@ class MyHelpCommand(Commands.HelpCommand):
         return "Type `{0}{1} command` for more info on a command.\n" \
                "You can also type `{0}{1} category` for more info on a category.".format(self.clean_prefix, command_name)
 
-    def add_indented_commands(self, commands, *, heading, max_size=None, tabs=1):
+    async def add_indented_commands(self, commands, *, heading, max_size=None, tabs=1):
         """Indents a list of commands after the specified heading.
         The formatting is added to the :attr:`paginator`.
         The default implementation is the command name indented by
@@ -102,9 +102,10 @@ class MyHelpCommand(Commands.HelpCommand):
                 name = command.name
             width = max_size - (get_width(name) - len(name))
             entry = '{0}{1:<{width}} {2}'.format(self.indent * tabs * ' ', name, command.short_doc, width=width)
-            if isinstance(command, Commands.Group):
-                self.add_indented_commands(
-                    list(command.commands),
+            if isinstance(command, cmds.Group):
+                subcommands = await self.filter_commands(command.commands, sort=self.sort_commands)
+                await self.add_indented_commands(
+                    list(subcommands),
                     heading=self.shorten_text(entry),
                     tabs=tabs+1
                 )
@@ -170,6 +171,7 @@ class MyHelpCommand(Commands.HelpCommand):
         if command.description:
             self.paginator.add_line(command.description, empty=True)
 
+        self.paginator.add_line('Command:')
         signature = self.get_command_signature(command)
         self.paginator.add_line(f'`{signature}`', empty=True)
 
@@ -245,7 +247,7 @@ class MyHelpCommand(Commands.HelpCommand):
         # Now we can add the commands to the page.
         for category, commands in to_iterate:
             commands = sorted(commands, key=lambda c: c.name) if self.sort_commands else list(commands)
-            self.add_indented_commands(commands, heading=category, max_size=max_size, tabs=0)
+            await self.add_indented_commands(commands, heading=category, max_size=max_size, tabs=0)
 
         self.paginator.add_line('Groups:')
         for c in group_cmds:
@@ -272,7 +274,7 @@ class MyHelpCommand(Commands.HelpCommand):
         self.add_command_formatting(group)
 
         filtered = await self.filter_commands(group.commands, sort=self.sort_commands)
-        self.add_indented_commands(filtered, heading=self.commands_heading, tabs=0)
+        await self.add_indented_commands(filtered, heading=self.commands_heading, tabs=0)
 
         if filtered:
             note = self.get_ending_note()
@@ -287,7 +289,7 @@ class MyHelpCommand(Commands.HelpCommand):
             self.paginator.add_line(cog.description, empty=True)
 
         filtered = await self.filter_commands(cog.get_commands(), sort=self.sort_commands)
-        self.add_indented_commands(filtered, heading=self.commands_heading)
+        await self.add_indented_commands(filtered, heading=self.commands_heading)
 
         note = self.get_ending_note()
         if note:
